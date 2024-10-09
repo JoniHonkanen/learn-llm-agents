@@ -1,24 +1,22 @@
 import os
-import sqlite3 # for database
+import sqlite3  # for database
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.pydantic_v1 import BaseModel, Field
-from langchain_core.messages import (
-    HumanMessage,
-    AIMessage
-)
+from langchain_core.messages import HumanMessage, AIMessage
 from langgraph.graph import END, StateGraph
 from typing import List, TypedDict
 from dotenv import load_dotenv
-#DATABASE THINGS
+
+# DATABASE THINGS
 from database import init_db, sql
 
-#This example adds a database agent to the graph
-#Main points:
-#- Create a database agent that insert a new joke (rating over 5) into the database
-#- Database is initialized and some jokes are inserted into it on the start (if not already)
-#- Use the database tables and their descriptions in the prompt, so the agent can generate a query to insert the joke
-#- If inserted joke is a duplicate, the database will raise an error (and app will end without inserting the joke)
+# This example adds a database agent to the graph
+# Main points:
+# - Create a database agent that insert a new joke (rating over 5) into the database
+# - Database is initialized and some jokes are inserted into it on the start (if not already)
+# - Use the database tables and their descriptions in the prompt, so the agent can generate a query to insert the joke
+# - If inserted joke is a duplicate, the database will raise an error (and app will end without inserting the joke)
 
 
 # .env file is used to store the api key
@@ -39,7 +37,6 @@ description_of_tables = sql.describe_table([tables])
 
 print(f"\nTables in the database: {tables}")
 print(f"\nDescription of tables: {description_of_tables}")
-
 
 
 # Create a prompt template, topic is a variable
@@ -98,7 +95,8 @@ class FunnySchema(BaseModel):
     rating_reason: str = Field(
         description="Why the joke is rated this way",
     )
-    
+
+
 class ImprovedJokeSchema(BaseModel):
     suggestions: List[str] = Field(
         description="Suggestions to improve the joke",
@@ -106,8 +104,9 @@ class ImprovedJokeSchema(BaseModel):
     new_topic: str = Field(
         description="The new improved topic of the joke, which is generated using the original topic and suggestions",
     )
-    
-# Create a Pydantic model for the query    
+
+
+# Create a Pydantic model for the query
 class QuerySchema(BaseModel):
     query: str = Field(
         description="The generated query to find the closest jokes to the given topic",
@@ -143,12 +142,15 @@ def joker_agent(state: AgentState) -> AgentState:
     print(f"Joke rating: {res.rating}")
     return state
 
+
 # This agent will improve the joke if the orginal joke is not funny enough (used in the conditional edge)
 def joke_improver_agent(state: AgentState) -> AgentState:
     print(f"\n**Joke Improver Agent**")
     # Use created schema to structure the output
     structured_llm = llm.with_structured_output(ImprovedJokeSchema)
-    prompt = IMPROVER_LLM_PROMPT.format(topic=state["joke_topic"], joke=state["generated_joke"])
+    prompt = IMPROVER_LLM_PROMPT.format(
+        topic=state["joke_topic"], joke=state["generated_joke"]
+    )
     # Invoke the LLM with a prompt and get the structured output
     res = structured_llm.invoke(prompt)
     # Store the result in the state
@@ -162,11 +164,18 @@ def joke_improver_agent(state: AgentState) -> AgentState:
     print(f"new topic: {res.new_topic}")
     return state
 
+
 def database_query_agent(state: AgentState) -> AgentState:
     print(f"\n**Database Query Agent**")
     # Use created schema to structure the output
     structured_llm = llm.with_structured_output(QuerySchema)
-    prompt = DATABASE_QUERY_LLM_PROMPT.format(topic=state["joke_topic"], tables=tables, table_descriptions=description_of_tables, joke=state["generated_joke"], rating=state["joke_rating"])
+    prompt = DATABASE_QUERY_LLM_PROMPT.format(
+        topic=state["joke_topic"],
+        tables=tables,
+        table_descriptions=description_of_tables,
+        joke=state["generated_joke"],
+        rating=state["joke_rating"],
+    )
     # Invoke the LLM with a prompt and get the structured output
     res = structured_llm.invoke(prompt)
     # Store the result in the state
@@ -174,15 +183,15 @@ def database_query_agent(state: AgentState) -> AgentState:
         AIMessage(content=f"Generated query: {res.query}"),
     ]
     print(f"Generated query: {res.query}")
-    
+
     try:
         results = sql.run_query(res.query)
         print(f"Results: {results}")
     except Exception as e:
         print(f"Error: {e}")
-    
+
     return state
-    
+
 
 # Create a graph with the state
 workflow = StateGraph(AgentState)
@@ -216,7 +225,13 @@ graph = workflow.compile()
 
 # Invoke the graph with the state we want to start with
 # Just for example we use same "Hello World" as a joke topic and a message
-res = graph.invoke({"messages": [HumanMessage(content="Very bad joke about bengal cats")], "joke_topic": "Very bad joke about bengal cats", "iteration": 0})
+res = graph.invoke(
+    {
+        "messages": [HumanMessage(content="Very bad joke about bengal cats")],
+        "joke_topic": "Very bad joke about bengal cats",
+        "iteration": 0,
+    }
+)
 
 
 # Print the whole state
@@ -227,5 +242,3 @@ print(res["joke_topic"])
 
 # Print the joke from state
 print(f"\n\n{res["generated_joke"]}")
-
-
